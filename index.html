@@ -5623,5 +5623,114 @@ const oi=window.__initTag;window.__initTag=function(g){if(oi)oi(g);try{hook(g);e
 window.__setgod={tick,choose,build,fire,tele,ground,body,sprite,draw,top,preview,CFG,_render:render,_O:O,get state(){return S}};
 })();
 </script>
-</body>
+<script id="saveio-module">/* ===== SAVE DATA IMPORT & EXPORT (menu Pengaturan) =====
+   Modul mandiri: tidak mengubah gameplay maupun autosave. Mengekspor semua kunci localStorage milik game
+   (prefix hollow-crypt-, hollowCrypt., hc_) sehingga data baru di masa depan ikut tercakup otomatis. */
+(()=>{
+"use strict";
+const FMT="hollow-crypt-save",VER=1,MAX=5*1024*1024,BK="hollowcrypt-backup-before-import";
+const managed=k=>/^(hollow-crypt-|hollowCrypt\.|hc_)/.test(k);
+const hash=s=>{let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0}return h.toString(16).padStart(8,"0")};
+const canon=d=>JSON.stringify(Object.keys(d).sort().map(k=>[k,d[k]]));
+const isObj=o=>o!==null&&typeof o==="object"&&!Array.isArray(o);
+const jsonObj=v=>{try{const o=JSON.parse(v);return o!==null&&typeof o==="object"}catch{return false}};
+const V={
+ "hollow-crypt-wallet":v=>/^\d{1,12}$/.test(v),
+ "hollow-crypt-best":v=>/^\d{1,12}(\.\d+)?$/.test(v)||jsonObj(v),
+ "hollowCrypt.dungeonTheme":v=>/^[\w-]{1,40}$/.test(v),
+ "hollow-crypt-pet":v=>v.length<2e5&&(!/^[\[{]/.test(v)||jsonObj(v)),
+ "hollow-crypt-cards":jsonObj,"hollow-crypt-skins":jsonObj,"hollow-crypt-pets":jsonObj,"hollow-crypt-settings":jsonObj,
+ "hc_mode_v1":jsonObj,"hc_diff_v1":jsonObj,
+ "hollow-crypt-weapons":v=>{try{const o=JSON.parse(v);return isObj(o)&&isObj(o.owned)&&(o.equipped==null||isObj(o.equipped))}catch{return false}},
+ "hollow-crypt-weapons-test":v=>v==="0"||v==="1"};
+function collect(){const d={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(managed(k)){const v=localStorage.getItem(k);if(typeof v==="string")d[k]=v}}return d}
+function validate(text){
+ let o;try{o=JSON.parse(text)}catch{return{err:"File bukan JSON yang valid (rusak)."}}
+ if(!isObj(o)||o.format!==FMT)return{err:"Bukan file save Hollow Crypt."};
+ if(!Number.isInteger(o.version)||o.version<1)return{err:"Versi file tidak valid."};
+ if(o.version>VER)return{err:"File dibuat oleh versi game yang lebih baru."};
+ if(!isObj(o.data))return{err:"Struktur data save tidak valid."};
+ const keys=Object.keys(o.data);
+ if(!keys.length)return{err:"File save kosong."};
+ for(const k of keys){
+  const v=o.data[k];
+  if(!managed(k))return{err:`Kunci data tidak dikenal: ${k.slice(0,40)}`};
+  if(typeof v!=="string"||v.length>2e6)return{err:`Nilai data rusak: ${k}`};
+  if(V[k]&&!V[k](v))return{err:`Data rusak atau tidak valid: ${k}`}}
+ if(typeof o.checksum!=="string"||o.checksum!==hash(canon(o.data)))return{err:"Checksum tidak cocok: file rusak atau diubah."};
+ return{ok:true,obj:o}}
+function summary(o){
+ const L=[],d=o.data;
+ if(o.exportedAt){const t=new Date(o.exportedAt);if(!isNaN(t))L.push("Diekspor: "+t.toLocaleString())}
+ if(d["hollow-crypt-wallet"]!=null)L.push("Gold: "+d["hollow-crypt-wallet"]);
+ try{if(d["hollow-crypt-weapons"]){const w=JSON.parse(d["hollow-crypt-weapons"]);L.push("Legendary Weapon: "+Object.keys(w.owned).length+" / 6")}}catch{}
+ L.push("Jumlah data: "+Object.keys(d).length+" bagian");return L}
+function doExport(){
+ const data=collect();if(!Object.keys(data).length)return{err:"Belum ada data save untuk diekspor."};
+ const obj={format:FMT,version:VER,exportedAt:new Date().toISOString(),checksum:hash(canon(data)),data};
+ const blob=new Blob([JSON.stringify(obj,null,1)],{type:"application/json"});
+ const a=document.createElement("a"),n=new Date(),p=x=>String(x).padStart(2,"0");
+ a.href=URL.createObjectURL(blob);a.download=`hollow-crypt-save-${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}.json`;
+ document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+ return{ok:true,n:Object.keys(data).length}}
+function apply(o){
+ const st=localStorage,set=Storage.prototype.setItem,rem=Storage.prototype.removeItem,cur=collect();
+ try{set.call(st,BK,JSON.stringify({at:Date.now(),data:cur}))}catch{}
+ try{
+  for(const k of Object.keys(cur))if(!(k in o.data))rem.call(st,k);
+  for(const[k,v]of Object.entries(o.data))set.call(st,k,v);
+ }catch(e){
+  try{for(const k of Object.keys(o.data))rem.call(st,k);for(const[k,v]of Object.entries(cur))set.call(st,k,v)}catch{}
+  return false}
+ /* cegah autosave dari memori menimpa data hasil impor sebelum halaman dimuat ulang */
+ Storage.prototype.setItem=function(){};Storage.prototype.removeItem=function(){};
+ location.reload();return true}
+/* ---------- UI ---------- */
+const css=document.createElement("style");css.textContent=
+".sv-box{margin-top:14px;padding-top:12px;border-top:2px solid var(--bronze);display:grid;gap:8px}.sv-box h3{margin:0;font-size:14px;color:var(--gold)}"+
+".sv-row{display:flex;gap:8px}.sv-row .btn{flex:1;min-height:44px;margin-top:0}.sv-msg{font-size:12px;min-height:16px;line-height:1.4}.sv-msg.bad{color:#ff8a7a}.sv-hint{font-size:11px;opacity:.75;line-height:1.4}"+
+"#sv-modal{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(10,5,18,.82);padding:16px}#sv-modal .card{max-width:420px;width:100%;max-height:90vh;overflow-y:auto}"+
+"#sv-modal li{font-size:12px;line-height:1.6;text-align:left}#sv-modal .warn{font-size:12px;color:#ff8a7a;line-height:1.5;margin:10px 0}";
+document.head.appendChild(css);
+function confirmBox(o){
+ return new Promise(res=>{
+  const m=document.createElement("div");m.id="sv-modal";
+  const c=document.createElement("div");c.className="card";c.setAttribute("role","dialog");c.setAttribute("aria-modal","true");c.setAttribute("aria-label","Konfirmasi impor save");
+  const h=document.createElement("h2");h.textContent="Timpa data save?";
+  const ul=document.createElement("ul");for(const t of summary(o)){const li=document.createElement("li");li.textContent=t;ul.append(li)}
+  const w=document.createElement("div");w.className="warn";w.textContent="Semua progres saat ini akan DIGANTI dengan isi file ini, lalu game dimuat ulang (run yang sedang berjalan hilang). Cadangan otomatis data lama disimpan di perangkat ini.";
+  const row=document.createElement("div");row.className="sv-row";
+  const ok=document.createElement("button"),no=document.createElement("button");ok.className="btn";ok.textContent="Timpa & Impor";no.className="btn ghost";no.textContent="Batal";row.append(no,ok);
+  c.append(h,ul,w,row);m.append(c);document.body.append(m);no.focus();
+  const done=v=>{window.removeEventListener("keydown",key,true);m.remove();res(v)};
+  const key=e=>{if(e.code==="Escape"){e.preventDefault();e.stopImmediatePropagation();done(false)}};
+  window.addEventListener("keydown",key,true);ok.onclick=()=>done(true);no.onclick=()=>done(false)})}
+function mount(card){
+ if(card.querySelector(".sv-box"))return;
+ const box=document.createElement("div");box.className="sv-box";
+ const h=document.createElement("h3");h.textContent="Data Save";
+ const row=document.createElement("div");row.className="sv-row";
+ const bE=document.createElement("button"),bI=document.createElement("button");
+ bE.className=bI.className="btn ghost";bE.textContent="Export Save";bI.textContent="Import Save";
+ const fi=document.createElement("input");fi.type="file";fi.accept=".json,application/json";fi.hidden=true;
+ const msg=document.createElement("div");msg.className="sv-msg";msg.setAttribute("role","status");
+ const hint=document.createElement("div");hint.className="sv-hint";hint.textContent="Export mengunduh semua progres (gold, kartu, hero, pet & Bond, skin, senjata, boss, pengaturan) ke file JSON.";
+ const say=(t,bad)=>{msg.textContent=t;msg.className="sv-msg"+(bad?" bad":"")};
+ bE.onclick=()=>{const r=doExport();r.err?say(r.err,1):say(`Save diekspor (${r.n} bagian data).`)};
+ bI.onclick=()=>{fi.value="";fi.click()};
+ fi.onchange=async()=>{
+  const f=fi.files&&fi.files[0];if(!f)return;
+  if(f.size>MAX){say("File terlalu besar untuk file save.",1);return}
+  let text;try{text=await f.text()}catch{say("Gagal membaca file.",1);return}
+  const r=validate(text);if(r.err){say("Impor ditolak: "+r.err,1);return}
+  say("");if(!(await confirmBox(r.obj))){say("Impor dibatalkan. Data tidak berubah.");return}
+  if(!apply(r.obj))say("Impor gagal, data lama dipulihkan.",1)};
+ row.append(bE,bI);box.append(h,row,fi,msg,hint);
+ const last=card.lastElementChild;
+ if(last&&last.tagName==="BUTTON")card.insertBefore(box,last);else card.append(box)}
+const root=document.getElementById("screen-settings");
+if(root){const t=()=>{const c=root.querySelector(".settings-card");if(c)mount(c)};new MutationObserver(t).observe(root,{childList:true,subtree:true});t()}
+window.__saveIO={validate,collect,hash,canon};
+})();
+</script></body>
 </html>
